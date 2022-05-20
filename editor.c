@@ -40,11 +40,13 @@ struct FText *create_ftext(int fd);
 void print_ftext(struct FText *ftext);
 // 释放ftext
 void free_ftext(struct FText *ftext);
+// 获取输入
+int get_input(char *buf, int size);
 // 获取输入的命令
 int get_cmd(char *buf, int size);
-// 保存文件
+// 处理命令：保存文件
 int cmd_save(struct FText *ftext, char *path);
-// 退出当前文件
+// 处理命令：退出当前文件
 int cmd_quit(struct FText *ftext, char *path);
 // 切分命令，返回下一命令段的地址(如果没有返回NULL)
 char *sep_cmd(char **cmd);
@@ -52,13 +54,16 @@ char *sep_cmd(char **cmd);
 int str2uint(char *str);
 // 获得第n行
 struct Row *get_row(struct FText *ftext, int n);
-// 展示
+// 处理命令：展示
 int cmd_list(struct FText *ftext, char *path, int n);
-// 在第i行插入一行
+// 处理命令：在第i行插入一行
 int cmd_ins(struct FText *ftext, char *path, int n);
+// 处理命令：删除第i行
+int cmd_del(struct FText *ftext, char *path, int n);
 // 在第i长插入一新行
 struct Row *create_new_row(struct FText *ftext, int n);
-int get_input(char *buf, int size);
+// 删除第i行
+int del_row(struct FText *ftext, int n);
 
 int main(int argc, char *argv[])
 {
@@ -157,6 +162,23 @@ int main(int argc, char *argv[])
                     }
                     cmd_ins(ftext, argv[file_no], n);
                 }
+                // 删除一行
+                else if (!strcmp(ncmd, "del"))
+                {
+                    int n = -1;
+                    // 如果有参数
+                    if ((ncmd = sep_cmd(&s)))
+                    {
+                        // 正确页号返回非负值
+                        n = str2uint(ncmd);
+                        if (n < 0)
+                        {
+                            printf(1, ">>> editor: error parameter, you should try: del/del n\n");
+                            continue;
+                        }
+                    }
+                    cmd_del(ftext, argv[file_no], n);
+                }
                 // 无效命令
                 else
                 {
@@ -231,6 +253,26 @@ struct Row *get_row(struct FText *ftext, int n)
     return row;
 }
 
+int cmd_del(struct FText *ftext, char *path, int n)
+{
+    if (n >= ftext->size)
+    {
+        printf(1, ">>> ins error: there are only row[0~%d] in '%d'\n", ftext->size - 1, path);
+        return -1;
+    }
+    if (n < 0)
+        n = ftext->size - 1;
+
+    del_row(ftext, n);
+    ftext->dirty = 1;
+    if (n < ftext->size)
+        cmd_list(ftext, path, n);
+    else
+        cmd_list(ftext, path, ftext->size - 1);
+
+    return 1;
+}
+
 int cmd_ins(struct FText *ftext, char *path, int n)
 {
     char buf[BUFF_SIZE];
@@ -266,11 +308,32 @@ int cmd_ins(struct FText *ftext, char *path, int n)
 
         row = create_new_row(ftext, n);
         memmove(row->str, buf, len);
+        row->l += len;
+
+        // row->str[row->l] = 0;
 
         cmd_list(ftext, path, n);
     }
 
     ftext->dirty = 1;
+    return 1;
+}
+
+int del_row(struct FText *ftext, int n)
+{
+    struct Row *row;
+
+    // 检查时候大于当前最大行号
+    if (n > ftext->size - 1)
+        return -1;
+
+    row = get_row(ftext, n);
+    row->next->prev = row->prev;
+    row->prev->next = row->next;
+    free(row);
+
+    ftext->size--;
+
     return 1;
 }
 
@@ -296,6 +359,8 @@ int cmd_list(struct FText *ftext, char *path, int n)
 {
     struct Row *row;
     int line_no;
+    if (ftext->size == 0)
+        printf(1, ">>> '%s' is empty now\n", path);
 
     // 全文展示
     if (n < 0)
@@ -318,7 +383,7 @@ int cmd_list(struct FText *ftext, char *path, int n)
     // 过长
     else if (n >= ftext->size)
     {
-        printf(1, ">>> list: there are only row[0~%d] in '%d'\n", ftext->size - 1, path);
+        printf(1, ">>> list: there are only row[0~%d] in '%s'\n", ftext->size - 1, path);
         return -1;
     }
     // 展示局部
@@ -371,9 +436,8 @@ int cmd_quit(struct FText *ftext, char *path)
             printf(1, ">>> quit: %s had been change, \n", path);
             printf(1, "         do you want to save it? [y/n]   ");
 
-            memset(buf, 0, BUFF_SIZE);
-            gets(buf, BUFF_SIZE);
-        } while (buf[0] == 'y' || buf[0] == 'Y' || buf[0] == 'n' || buf[0] == 'N');
+            get_input(buf, BUFF_SIZE);
+        } while (!(buf[0] == 'y' || buf[0] == 'Y' || buf[0] == 'n' || buf[0] == 'N'));
 
         if (buf[0] == 'y' || buf[0] == 'Y')
         {
