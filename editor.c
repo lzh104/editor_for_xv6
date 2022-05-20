@@ -52,7 +52,13 @@ char *sep_cmd(char **cmd);
 int str2uint(char *str);
 // 获得第n行
 struct Row *get_row(struct FText *ftext, int n);
+// 展示
 int cmd_list(struct FText *ftext, char *path, int n);
+// 在第i行插入一行
+int cmd_ins(struct FText *ftext, char *path, int n);
+// 在第i长插入一新行
+struct Row *create_new_row(struct FText *ftext, int n);
+int get_input(char *buf, int size);
 
 int main(int argc, char *argv[])
 {
@@ -98,7 +104,6 @@ int main(int argc, char *argv[])
         while (get_cmd(buf, BUFF_SIZE) >= 0)
         {
             s = buf;
-            buf[strlen(s) - 1] = 0; // 去掉回车符
             printf(1, ">>> command: %s \n", s);
 
             if ((ncmd = sep_cmd(&s)))
@@ -121,7 +126,6 @@ int main(int argc, char *argv[])
                 // 展示
                 else if (!strcmp(ncmd, "list"))
                 {
-                    printf(1, ">>> list... \n");
                     int n = -1;
                     // 如果有参数
                     if ((ncmd = sep_cmd(&s)))
@@ -135,6 +139,23 @@ int main(int argc, char *argv[])
                         }
                     }
                     cmd_list(ftext, argv[file_no], n);
+                }
+                // 插入一行
+                else if (!strcmp(ncmd, "ins"))
+                {
+                    int n = -1;
+                    // 如果有参数
+                    if ((ncmd = sep_cmd(&s)))
+                    {
+                        // 正确页号返回非负值
+                        n = str2uint(ncmd);
+                        if (n < 0)
+                        {
+                            printf(1, ">>> editor: error parameter, you should try: ins/ins n\n");
+                            continue;
+                        }
+                    }
+                    cmd_ins(ftext, argv[file_no], n);
                 }
                 // 无效命令
                 else
@@ -208,6 +229,67 @@ struct Row *get_row(struct FText *ftext, int n)
         ;
 
     return row;
+}
+
+int cmd_ins(struct FText *ftext, char *path, int n)
+{
+    char buf[BUFF_SIZE];
+    struct Row *row;
+    int len;
+    if (n >= ftext->size)
+    {
+        printf(1, ">>> ins error: there are only row[0~%d] in '%d'\n", ftext->size - 1, path);
+        return -1;
+    }
+    if (n < 0)
+        n = ftext->size;
+
+    printf(1, ">>> please insert the text you want to insert: \n");
+    if (n / 100)
+        printf(1, "%d | ", n);
+    else if (n / 10)
+        printf(1, " %d | ", n);
+    else
+        printf(1, "  %d | ", n);
+
+    // 输入一行
+    if (get_input(buf, BUFF_SIZE) >= 0)
+    {
+        len = strlen(buf);
+        // too long for a row
+        if (len > MAX_ROW_L)
+        {
+            printf(1, ">>> ins error: too long \n");
+            return -1;
+        }
+        // 插入
+
+        row = create_new_row(ftext, n);
+        memmove(row->str, buf, len);
+
+        cmd_list(ftext, path, n);
+    }
+
+    ftext->dirty = 1;
+    return 1;
+}
+
+struct Row *create_new_row(struct FText *ftext, int n)
+{
+    struct Row *row, *nrow;
+    // 如果大于当前最大行号，则在最后插入一个新行
+    if (n >= ftext->size)
+        return create_row_tail(ftext);
+
+    row = get_row(ftext, n);
+    nrow = malloc(sizeof(*nrow));
+    nrow->l = 0;
+    nrow->next = row;
+    nrow->prev = row->prev;
+    row->prev->next = nrow;
+    row->prev = nrow;
+    ftext->size++;
+    return nrow;
 }
 
 int cmd_list(struct FText *ftext, char *path, int n)
@@ -339,10 +421,16 @@ int cmd_save(struct FText *ftext, char *path)
 int get_cmd(char *buf, int size)
 {
     printf(1, "<<< ");
+    return get_input(buf, size);
+}
+
+int get_input(char *buf, int size)
+{
     memset(buf, 0, size);
     gets(buf, size);
     if (buf[0] == 0)
         return -1;
+    buf[strlen(buf) - 1] = 0; // 去掉回车符
     return 0;
 }
 
