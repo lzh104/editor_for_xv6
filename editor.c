@@ -18,18 +18,18 @@ char whitespace[] = " \t\r\n\v";
 
 struct Row
 {
-    int l;
-    char str[MAX_ROW_L + 1];
-    struct Row *prev;
-    struct Row *next;
+    int l;                   // 长度
+    char str[MAX_ROW_L + 1]; // 内容
+    struct Row *prev;        // 前一行
+    struct Row *next;        // 后一行
 };
 
 struct FText
 {
-    int fd;
-    int size;
-    struct Row head;
-    int dirty;
+    int fd;          // 文件
+    int size;        // 行数
+    struct Row head; // 头结点
+    int dirty;       // 是否脏
 };
 
 // 尾插创建新的行
@@ -60,6 +60,8 @@ int cmd_list(struct FText *ftext, char *path, int n);
 int cmd_ins(struct FText *ftext, char *path, int n);
 // 处理命令：删除第i行
 int cmd_del(struct FText *ftext, char *path, int n);
+// 处理命令：修改第i行
+int cmd_mod(struct FText *ftext, char *path, int n);
 // 在第i长插入一新行
 struct Row *create_new_row(struct FText *ftext, int n);
 // 删除第i行
@@ -83,13 +85,13 @@ int main(int argc, char *argv[])
     for (file_no = 1; file_no < argc; file_no++)
     {
         // 打开文件
-        printf(1, ">>> opening %s ... \n", argv[file_no]);
+        printf(1, ">>> opening %s ... ", argv[file_no]);
         if ((fd = open(argv[file_no], O_RDONLY)) < 0)
         {
-            printf(1, ">>> editor: cannot open %s\n", argv[file_no]);
+            printf(1, "\n >>> editor: cannot open %s\n", argv[file_no]);
             continue;
         }
-        printf(1, ">>> finish! \n", argv[file_no]);
+        printf(1, "finish! \n", argv[file_no]);
 
         // 将文件内容存在FText结构体中
         struct FText *ftext = create_ftext(fd);
@@ -109,7 +111,6 @@ int main(int argc, char *argv[])
         while (get_cmd(buf, BUFF_SIZE) >= 0)
         {
             s = buf;
-            printf(1, ">>> command: %s \n", s);
 
             if ((ncmd = sep_cmd(&s)))
             {
@@ -145,7 +146,7 @@ int main(int argc, char *argv[])
                     }
                     cmd_list(ftext, argv[file_no], n);
                 }
-                // 插入一行
+                // 插入
                 else if (!strcmp(ncmd, "ins"))
                 {
                     int n = -1;
@@ -162,7 +163,7 @@ int main(int argc, char *argv[])
                     }
                     cmd_ins(ftext, argv[file_no], n);
                 }
-                // 删除一行
+                // 删除
                 else if (!strcmp(ncmd, "del"))
                 {
                     int n = -1;
@@ -178,6 +179,23 @@ int main(int argc, char *argv[])
                         }
                     }
                     cmd_del(ftext, argv[file_no], n);
+                }
+                // 修改
+                else if (!strcmp(ncmd, "mod"))
+                {
+                    int n = -1;
+                    // 如果有参数
+                    if ((ncmd = sep_cmd(&s)))
+                    {
+                        // 正确页号返回非负值
+                        n = str2uint(ncmd);
+                        if (n < 0)
+                        {
+                            printf(1, ">>> editor: error parameter, you should try: mod/mod n\n");
+                            continue;
+                        }
+                    }
+                    cmd_mod(ftext, argv[file_no], n);
                 }
                 // 无效命令
                 else
@@ -257,7 +275,7 @@ int cmd_del(struct FText *ftext, char *path, int n)
 {
     if (n >= ftext->size)
     {
-        printf(1, ">>> ins error: there are only row[0~%d] in '%d'\n", ftext->size - 1, path);
+        printf(1, ">>> ins error: there are only row[0~%d] in '%s'\n", ftext->size - 1, path);
         return -1;
     }
     if (n < 0)
@@ -280,7 +298,7 @@ int cmd_ins(struct FText *ftext, char *path, int n)
     int len;
     if (n >= ftext->size)
     {
-        printf(1, ">>> ins error: there are only row[0~%d] in '%d'\n", ftext->size - 1, path);
+        printf(1, ">>> ins error: there are only row[0~%d] in '%s'\n", ftext->size - 1, path);
         return -1;
     }
     if (n < 0)
@@ -307,10 +325,54 @@ int cmd_ins(struct FText *ftext, char *path, int n)
         // 插入
 
         row = create_new_row(ftext, n);
-        memmove(row->str, buf, len);
+        strcpy(row->str, buf);
+
         row->l += len;
 
-        // row->str[row->l] = 0;
+        cmd_list(ftext, path, n);
+    }
+
+    ftext->dirty = 1;
+    return 1;
+}
+
+int cmd_mod(struct FText *ftext, char *path, int n)
+{
+    char buf[BUFF_SIZE];
+    struct Row *row;
+    int len;
+    if (n >= ftext->size)
+    {
+        printf(1, ">>> ins error: there are only row[0~%d] in '%s'\n", ftext->size - 1, path);
+        return -1;
+    }
+    if (n < 0)
+        n = ftext->size - 1;
+
+    printf(1, ">>> please insert the text you want to modify: \n");
+    if (n / 100)
+        printf(1, "%d | ", n);
+    else if (n / 10)
+        printf(1, " %d | ", n);
+    else
+        printf(1, "  %d | ", n);
+
+    // 输入一行
+    if (get_input(buf, BUFF_SIZE) >= 0)
+    {
+        len = strlen(buf);
+        // too long for a row
+        if (len > MAX_ROW_L)
+        {
+            printf(1, ">>> ins error: too long \n");
+            return -1;
+        }
+        // 插入
+
+        row = get_row(ftext, n);
+        strcpy(row->str, buf);
+
+        row->l = len;
 
         cmd_list(ftext, path, n);
     }
@@ -366,7 +428,7 @@ int cmd_list(struct FText *ftext, char *path, int n)
     if (n < 0)
     {
         line_no = 0;
-        printf(1, "[top] \n");
+        printf(1, "----+--------------------------------------------------- \n");
         row = ftext->head.next;
         while (row != &ftext->head)
         {
@@ -378,7 +440,7 @@ int cmd_list(struct FText *ftext, char *path, int n)
                 printf(1, "  %d | %s\n", line_no++, row->str);
             row = row->next;
         }
-        printf(1, "[end] \n");
+        printf(1, "----+--------------------------------------------------- \n");
     }
     // 过长
     else if (n >= ftext->size)
@@ -404,9 +466,13 @@ int cmd_list(struct FText *ftext, char *path, int n)
         n2 = shiftr + n < ftext->size ? shiftr + n : ftext->size - 1;
         row = get_row(ftext, n1);
         if (n1 == 0)
-            printf(1, "[top] \n");
+            printf(1, "----+--------------------------------------------------- \n");
         else
-            printf(1, "...... \n");
+        {
+            printf(1, "----+--------------------------------------------------- \n");
+            printf(1, "... | ... \n");
+        }
+
         while (n1 <= n2)
         {
             if (n1 / 100)
@@ -418,9 +484,12 @@ int cmd_list(struct FText *ftext, char *path, int n)
             row = row->next;
         }
         if (n1 == ftext->size)
-            printf(1, "[end] \n");
+            printf(1, "----+--------------------------------------------------- \n");
         else
-            printf(1, "...... \n");
+        {
+            printf(1, "... | ... \n");
+            printf(1, "----+--------------------------------------------------- \n");
+        }
     }
 
     return 1;
@@ -590,7 +659,7 @@ void print_ftext(struct FText *ftext)
     struct Row *row;
     int line_no = 0;
 
-    printf(1, ">>> [begin] \n");
+    printf(1, "----+--------------------------------------------------- \n");
     row = ftext->head.next;
     while (row != &ftext->head)
     {
@@ -602,5 +671,5 @@ void print_ftext(struct FText *ftext)
             printf(1, "  %d | %s\n", line_no++, row->str);
         row = row->next;
     }
-    printf(1, ">>> [end] \n");
+    printf(1, "----+--------------------------------------------------- \n");
 }
